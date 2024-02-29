@@ -6,7 +6,7 @@ import json
 import os
 
 
-SERVER_URL = 'http://localhost:8000'
+SERVER_URL = 'http://127.0.0.1:1853'
 OUTPUT = "./demo_outputs"
 cloned_speakers = {}
 
@@ -40,7 +40,7 @@ def clone_speaker(upload_file, clone_speaker_name, cloned_speaker_names):
         json.dump(embeddings, fp)
     cloned_speakers[clone_speaker_name] = embeddings
     cloned_speaker_names.append(clone_speaker_name)
-    return upload_file, clone_speaker_name, cloned_speaker_names, gr.Dropdown.update(choices=cloned_speaker_names)
+    return upload_file, clone_speaker_name, cloned_speaker_names, gr.Dropdown(choices=cloned_speaker_names)
 
 def tts(text, speaker_type, speaker_name_studio, speaker_name_custom, lang):
     embeddings = STUDIO_SPEAKERS[speaker_name_studio] if speaker_type == 'Studio' else cloned_speakers[speaker_name_custom]

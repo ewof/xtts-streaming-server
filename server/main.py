@@ -5,6 +5,7 @@ import tempfile
 import wave
 import torch
 import numpy as np
+import lameenc
 from typing import List
 from pydantic import BaseModel
 
@@ -15,6 +16,8 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from TTS.utils.generic_utils import get_user_data_dir
 from TTS.utils.manage import ModelManager
+
+tempfile_folder = "cloned_voices"
 
 torch.set_num_threads(int(os.environ.get("NUM_THREADS", os.cpu_count())))
 device = torch.device("cuda" if os.environ.get("USE_CPU", "0") == "0" else "cpu")
@@ -56,7 +59,7 @@ app = FastAPI(
 @app.post("/clone_speaker")
 def predict_speaker(wav_file: UploadFile):
     """Compute conditioning inputs from reference audio file."""
-    temp_audio_name = next(tempfile._get_candidate_names())
+    temp_audio_name = f"{tempfile_folder}/{next(tempfile._get_candidate_names())}"
     with open(temp_audio_name, "wb") as temp, torch.inference_mode():
         temp.write(io.BytesIO(wav_file.file.read()).getbuffer())
         gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
@@ -103,7 +106,6 @@ class StreamingInputs(BaseModel):
     gpt_cond_latent: List[List[float]]
     text: str
     language: str
-    add_wav_header: bool = True
     stream_chunk_size: str = "20"
 
 
@@ -114,7 +116,6 @@ def predict_streaming_generator(parsed_input: dict = Body(...)):
     language = parsed_input.language
 
     stream_chunk_size = int(parsed_input.stream_chunk_size)
-    add_wav_header = parsed_input.add_wav_header
 
 
     chunks = model.inference_stream(
@@ -128,18 +129,33 @@ def predict_streaming_generator(parsed_input: dict = Body(...)):
 
     for i, chunk in enumerate(chunks):
         chunk = postprocess(chunk)
-        if i == 0 and add_wav_header:
+        if i == 0:
             yield encode_audio_common(b"", encode_base64=False)
             yield chunk.tobytes()
         else:
             yield chunk.tobytes()
 
+def mpeg_generator(parsed_input: dict = Body(...)):
+    for i, chunk in enumerate(predict_streaming_generator(parsed_input)):
+        encoder = lameenc.Encoder()
+        encoder.set_bit_rate(256)
+        encoder.set_in_sample_rate(24000)
+        encoder.set_channels(1)
+        encoder.set_quality(5)  # 2-highest, 7-fastest
+        # Can call this in a loop
+        mp3_data = encoder.encode(chunk)
+        # Flush when finished encoding the entire stream
+        mp3_data += encoder.flush()
+
+        chunk = bytes([byte for byte in mp3_data])
+        yield chunk
+            
 
 @app.post("/tts_stream")
 def predict_streaming_endpoint(parsed_input: StreamingInputs):
     return StreamingResponse(
-        predict_streaming_generator(parsed_input),
-        media_type="audio/wav",
+        mpeg_generator(parsed_input),
+        media_type="audio/mpeg",
     )
 
 class TTSInputs(BaseModel):
