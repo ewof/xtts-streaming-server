@@ -6,7 +6,7 @@ import json
 import os
 
 
-SERVER_URL = 'http://127.0.0.1:1853'
+SERVER_URL = 'http://localhost:8000'
 OUTPUT = "./demo_outputs"
 cloned_speakers = {}
 
